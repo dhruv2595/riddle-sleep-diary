@@ -948,23 +948,27 @@ body {
   };
 
   /* ================= Music ================= */
-  /* Original music-box waltz in E minor (3/4). Edit MELODY / CHORDS / BPM to change it.
-     Each bar = 3 beats; a nested array splits a beat into eighths; null = rest. */
+  /* Original celesta waltz in E minor, 3/8 — written for this diary (no borrowed melodies).
+     Each bar = 3 eighth notes; a nested array splits an eighth into sixteenths; null = rest.
+     CHORDS: [bass, then three tones the harp arpeggiates and the strings sustain]. */
   const Music = (() => {
-    const BPM = 66;
-    const MASTER_DB = 0;    // overall music level (a Limiter at -3 dB guards against clipping)
+    const BPM = 90;           // quarter-note tempo; one 3/8 bar ≈ 1 s
+    const MASTER_DB = 0;      // overall music level (a Limiter at -3 dB guards against clipping)
+    const Am = ['A2', 'A3', 'C4', 'E4'], Em = ['E2', 'E3', 'G3', 'B3'], B7 = ['B1', 'F#3', 'A3', 'D#4'],
+          B = ['B1', 'F#3', 'B3', 'D#4'], AmC = ['C2', 'C3', 'E3', 'A3'], EmB = ['B1', 'E3', 'G3', 'B3'],
+          C = ['C2', 'C3', 'E3', 'G3'];
     const MELODY = [
-      ['E5', ['G5', 'F#5'], 'E5'], ['B4', null, null], ['C5', ['E5', 'D#5'], 'E5'], ['B4', null, null],
-      ['A4', ['C5', 'B4'], 'A4'], ['F#4', ['G4', 'A4'], 'B4'], ['G4', 'F#4', 'D#4'], ['E4', null, null],
-      ['B4', ['E5', 'G5'], 'B5'], ['A5', null, 'G5'], ['F#5', ['A5', 'G5'], 'F#5'], ['D#5', null, 'B4'],
-      ['C5', ['E5', 'A5'], 'G5'], ['F#5', ['E5', 'D#5'], 'E5'], ['B4', ['C5', 'A4'], 'D#5'], ['E5', null, null],
+      // A — a creeping chromatic figure that keeps circling back
+      ['C5', 'B4', ['A#4', 'B4']], ['E5', null, 'D5'], ['C5', ['B4', 'C5'], 'A4'], ['B4', null, null],
+      ['C5', 'B4', ['A#4', 'B4']], ['F#5', null, 'E5'], ['D#5', ['E5', 'F#5'], 'G5'], ['F#5', null, null],
+      // B — rises, chromatic climb, falls back
+      ['A5', 'G#5', 'A5'], ['C6', null, 'B5'], ['A#5', 'B5', ['G5', 'E5']], ['F#5', null, null],
+      ['G5', 'F#5', 'G5'], ['B5', null, 'A5'], ['G5', ['F#5', 'E5'], 'D#5'], ['E5', null, null],
+      // A' — the figure returns, settles home
+      ['C5', 'B4', ['A#4', 'B4']], ['G5', null, 'F#5'], ['E5', ['D#5', 'E5'], 'C5'], ['B4', null, ['A#4', 'A4']],
+      ['G4', 'A4', ['B4', 'C5']], ['D#5', null, 'E5'], ['F#5', ['E5', 'D#5'], 'B4'], ['E5', null, null],
     ];
-    const CHORDS = [
-      ['E2', 'E3', 'G3', 'B3'], ['E2', 'E3', 'G3', 'B3'], ['A2', 'A3', 'C4', 'E4'], ['E2', 'E3', 'G3', 'B3'],
-      ['A2', 'A3', 'C4', 'E4'], ['D#2', 'F#3', 'A3', 'B3'], ['B1', 'F#3', 'A3', 'D#4'], ['E2', 'E3', 'G3', 'B3'],
-      ['E2', 'E3', 'G3', 'B3'], ['C2', 'C3', 'E3', 'A3'], ['B1', 'F#3', 'B3', 'D#4'], ['B1', 'F#3', 'A3', 'D#4'],
-      ['A2', 'A3', 'C4', 'E4'], ['B1', 'E3', 'G3', 'B3'], ['B1', 'F#3', 'A3', 'D#4'], ['E2', 'E3', 'G3', 'B3'],
-    ];
+    const CHORDS = [Am, Em, Am, B7,  Am, B, B7, B,  Am, AmC, EmB, B7,  C, Em, B7, Em,  Am, Em, Am, B7,  C, B7, B7, Em];
     let started = false, on = true, out, sfx, sfxVerb, chimeSynth, scratch;
     try { on = localStorage.getItem('riddle-music') !== 'off'; } catch {}
     const btn = $('#musicBtn');
@@ -1005,7 +1009,13 @@ body {
         envelope: { attack: 1.2, decay: 0.5, sustain: 0.8, release: 2.5 },
         volume: -18,
       }).connect(reverb);
-      // low harp bass
+      // harp: plucked arpeggios through every bar
+      const harp = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.003, decay: 0.9, sustain: 0, release: 0.8 },
+        volume: -9,
+      }).connect(reverb);
+      // low bass
       const bass = new Tone.Synth({
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.01, decay: 2, sustain: 0, release: 1.5 }, volume: -8,
@@ -1022,18 +1032,19 @@ body {
       scratchVol.mute = !on;
 
       Tone.Transport.bpm.value = BPM;
-      Tone.Transport.timeSignature = 3;
-      new Tone.Sequence((t, n) => { if (n) celesta.triggerAttackRelease(n, '8n', t, 0.55 + Math.random() * 0.25); },
-        MELODY.flat(), '4n').start('1m');
+      Tone.Transport.timeSignature = [3, 8];
+      let step8 = 0;                                // accent each bar's downbeat for the waltz lilt
+      new Tone.Sequence((t, n) => {
+        if (n) celesta.triggerAttackRelease(n, '8n', t, (step8 % 3 === 0 ? 0.75 : 0.5) + Math.random() * 0.15);
+        step8++;
+      }, MELODY.flat(), '8n').start(0);           // in step with the harmony loop below
       let bar = 0;
       new Tone.Loop(t => {
         const ch = CHORDS[bar % CHORDS.length];
-        bass.triggerAttackRelease(ch[0], '2n.', t, 0.7);
-        pad.triggerAttackRelease(ch.slice(1), '2n.', t, 0.35);
-        // soft upper arpeggio on beats 2 and 3
-        const beat = Tone.Time('4n').toSeconds();
-        celesta.triggerAttackRelease(Tone.Frequency(ch[2]).transpose(12), '8n', t + beat, 0.18);
-        celesta.triggerAttackRelease(Tone.Frequency(ch[3]).transpose(12), '8n', t + beat * 2, 0.18);
+        const e = Tone.Time('8n').toSeconds();
+        bass.triggerAttackRelease(ch[0], '1m', t, 0.7);
+        pad.triggerAttackRelease(ch.slice(1), '1m', t, 0.3);
+        ch.slice(1).forEach((n, i) => harp.triggerAttackRelease(n, '8n', t + i * e, i ? 0.4 : 0.5));
         bar++;
       }, '1m').start(0);
       Tone.Transport.start('+0.1');
