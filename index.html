@@ -42,8 +42,9 @@ body {
 #world { position: absolute; inset: 0; perspective: 1700px; perspective-origin: 50% 20%; transform: translateX(var(--pan, 0px)); transition: transform 1.1s cubic-bezier(.6,.05,.25,1); }
 /* photographic table plate; drifts less than the book for parallax depth */
 .tablebg {
-  position: absolute; left: -3%; top: -3%; width: 106%; height: 106%;
-  background: #0b0705 url(assets/table.jpg) center / cover no-repeat;
+  /* extends left by --padL so panning to the past pages never runs off the photo; anchored right */
+  position: absolute; left: calc(-3% - var(--padL, 0px)); top: -3%; width: calc(106% + var(--padL, 0px)); height: 106%;
+  background: #0b0705 url(assets/table.jpg) right center / cover no-repeat;
   transform: translate(calc(var(--mx) * -6px), calc(var(--my) * -5px)); will-change: transform;
 }
 /* live flicker pinned to the photo flame (positioned by JS) */
@@ -325,13 +326,31 @@ body {
   background: radial-gradient(ellipse at 45% 42%, rgba(255,244,210,.95), rgba(255,205,115,.6) 35%, rgba(255,170,70,.15) 70%, transparent);
   opacity: 0; transition: opacity 1.6s ease;
 }
-.page.right.speaking::after { opacity: .14; }
+.page.right::after { opacity: var(--glow, 0); }
+.page.right.speaking::after { opacity: max(.14, var(--glow, 0)); }
 #openHint {
   position: fixed; left: 0; right: 0; bottom: 4vh; text-align: center; z-index: 7; pointer-events: none;
   font: italic 18px var(--font-print); color: rgba(240,215,170,.7); animation: breathe 3s infinite ease-in-out;
 }
 #openHint.hide { animation: none; opacity: 0; transition: opacity .6s; }
 @keyframes breathe { 0%,100% { opacity: .3; } 50% { opacity: .8; } }
+
+/* light pouring up out of the open book: screen-blended over everything, only once the cover has lifted */
+#bloom {
+  position: fixed; left: var(--bloom-x, 50%); top: var(--bloom-y, 50%); width: 0; height: 0; z-index: 8; pointer-events: none;
+  opacity: var(--bloom, 0);
+}
+#bloom::before, #bloom::after { content: ""; position: absolute; border-radius: 50%; mix-blend-mode: screen; }
+#bloom::before { /* hot core over the page */
+  width: calc(var(--P) * 1.1); height: calc(var(--PH) * .95); left: calc(var(--P) * -.55); top: calc(var(--PH) * -.475);
+  background: radial-gradient(ellipse, rgba(255,246,215,.95) 0, rgba(255,214,130,.7) 30%, rgba(255,170,70,.25) 58%, transparent 72%);
+  filter: blur(24px);
+}
+#bloom::after { /* wide warm halo spilling onto the table and the air */
+  width: calc(var(--P) * 2.8); height: calc(var(--PH) * 2); left: calc(var(--P) * -1.4); top: calc(var(--PH) * -1);
+  background: radial-gradient(ellipse, rgba(255,200,110,.55) 0, rgba(255,160,60,.2) 35%, transparent 65%);
+  filter: blur(40px);
+}
 
 /* ---------- Music toggle ---------- */
 #musicBtn {
@@ -421,6 +440,7 @@ body {
   <div class="dark"></div>
 </div>
 <button id="musicBtn" aria-label="Toggle music">♪ music: off</button>
+<div id="bloom"></div>
 <div id="openHint">Click the diary, or press Enter, to open it</div>
 
 <script>
@@ -444,14 +464,16 @@ body {
     if (pw > W * 0.88) { pw = W * 0.88; ph = Math.min(pw / 0.7, H * 0.84); }
     root.style.setProperty('--P', pw + 'px');
     root.style.setProperty('--PH', ph + 'px');
-    // map the photo onto the screen (.tablebg is a 106% box with background-size: cover)
-    const bw = W * 1.06, bh = H * 1.06, sc = Math.max(bw / PLATE_W, bh / PLATE_H);
-    const ox = (bw - PLATE_W * sc) / 2, oy = (bh - PLATE_H * sc) / 2;
+    // map the photo onto the screen (.tablebg: 106% box widened left by padL, cover, anchored right)
+    const padL = pw + W * 0.25;               // more than the past-pages pan can ever need
+    root.style.setProperty('--padL', padL + 'px');
+    const bw = W * 1.06 + padL, bh = H * 1.06, sc = Math.max(bw / PLATE_W, bh / PLATE_H);
+    const ox = bw - PLATE_W * sc, oy = (bh - PLATE_H * sc) / 2;
     const cg = $('#candleGlow');
     cg.style.left = (ox + FLAME[0] * PLATE_W * sc) + 'px';
     cg.style.top = (oy + FLAME[1] * PLATE_H * sc) + 'px';
     // right page centred, but never over the candle and inkwell
-    const propsLeft = -0.03 * W + ox + PROPS_X * PLATE_W * sc;
+    const propsLeft = -0.03 * W - padL + ox + PROPS_X * PLATE_W * sc;
     const bookRight = W < 700 ? W / 2 + pw / 2 : Math.min(W / 2 + pw / 2, propsLeft - 24);
     root.style.setProperty('--bx', (bookRight - pw * 2) + 'px');
     // past pages: pan the whole table (camera move) so the left page is centred
@@ -930,6 +952,7 @@ body {
      Each bar = 3 beats; a nested array splits a beat into eighths; null = rest. */
   const Music = (() => {
     const BPM = 66;
+    const MASTER_DB = 0;    // overall music level (a Limiter at -3 dB guards against clipping)
     const MELODY = [
       ['E5', ['G5', 'F#5'], 'E5'], ['B4', null, null], ['C5', ['E5', 'D#5'], 'E5'], ['B4', null, null],
       ['A4', ['C5', 'B4'], 'A4'], ['F#4', ['G4', 'A4'], 'B4'], ['G4', 'F#4', 'D#4'], ['E4', null, null],
@@ -942,7 +965,7 @@ body {
       ['E2', 'E3', 'G3', 'B3'], ['C2', 'C3', 'E3', 'A3'], ['B1', 'F#3', 'B3', 'D#4'], ['B1', 'F#3', 'A3', 'D#4'],
       ['A2', 'A3', 'C4', 'E4'], ['B1', 'E3', 'G3', 'B3'], ['B1', 'F#3', 'A3', 'D#4'], ['E2', 'E3', 'G3', 'B3'],
     ];
-    let started = false, on = true, out, scratch;
+    let started = false, on = true, out, sfx, sfxVerb, chimeSynth, scratch;
     try { on = localStorage.getItem('riddle-music') !== 'off'; } catch {}
     const btn = $('#musicBtn');
     const label = () => { btn.textContent = on ? '♪ music: on' : '♪ music: off'; };
@@ -953,8 +976,18 @@ body {
       if (started || typeof Tone === 'undefined') return;
       started = true;
       await Tone.start();
-      out = new Tone.Volume(on ? -10 : -Infinity).toDestination();
-      const reverb = new Tone.Reverb({ decay: 7, wet: 0.55 }).connect(out);
+      const limiter = new Tone.Limiter(-3).toDestination();
+      out = new Tone.Volume(on ? MASTER_DB : -Infinity).connect(limiter);
+      // sound effects get their own bus, so the book still creaks and thumps with the music off
+      sfx = new Tone.Volume(0).connect(limiter);
+      sfxVerb = new Tone.Reverb({ decay: 2.5, wet: 0.3 }).connect(sfx);
+      chimeSynth = new Tone.PolySynth(Tone.FMSynth, {
+        harmonicity: 3.01, modulationIndex: 5, volume: -8,
+        envelope: { attack: 0.002, decay: 1.6, sustain: 0, release: 1.8 },
+        modulationEnvelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.4 },
+      }).connect(sfxVerb);
+      const reverb = new Tone.Reverb({ decay: 7, wet: 0.5 }).connect(out);
+      await reverb.ready;                      // impulse is generated async; until then the wet path is silent
       const echo = new Tone.FeedbackDelay({ delayTime: '4n.', feedback: 0.25, wet: 0.18 }).connect(reverb);
 
       // celesta / music box lead
@@ -963,26 +996,26 @@ body {
         oscillator: { type: 'sine' }, modulation: { type: 'sine' },
         envelope: { attack: 0.002, decay: 1.4, sustain: 0, release: 1.6 },
         modulationEnvelope: { attack: 0.002, decay: 0.35, sustain: 0, release: 0.5 },
-        volume: -14,
+        volume: -4,
       }).connect(echo);
       lead = celesta;
       // dark string pad
       const pad = new Tone.PolySynth(Tone.AMSynth, {
         oscillator: { type: 'triangle' },
         envelope: { attack: 1.2, decay: 0.5, sustain: 0.8, release: 2.5 },
-        volume: -30,
+        volume: -18,
       }).connect(reverb);
       // low harp bass
       const bass = new Tone.Synth({
         oscillator: { type: 'triangle' },
-        envelope: { attack: 0.01, decay: 2, sustain: 0, release: 1.5 }, volume: -16,
+        envelope: { attack: 0.01, decay: 2, sustain: 0, release: 1.5 }, volume: -8,
       }).connect(reverb);
       // faint room / candle air
       const air = new Tone.Noise('brown').connect(new Tone.Filter(400, 'lowpass').connect(new Tone.Volume(-42).connect(out)));
       air.start();
 
       // quill scratch for typing
-      const scratchVol = new Tone.Volume(-30).toDestination();
+      const scratchVol = new Tone.Volume(-22).toDestination();
       scratch = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.002, decay: 0.05, sustain: 0 } })
         .connect(new Tone.Filter(3800, 'bandpass').connect(scratchVol));
       scratch._vol = scratchVol;
@@ -1004,13 +1037,13 @@ body {
         bar++;
       }, '1m').start(0);
       Tone.Transport.start('+0.1');
-      if (on) { out.volume.value = -40; out.volume.rampTo(-10, 4); }
+      if (on) { out.volume.value = -40; out.volume.rampTo(MASTER_DB, 3); }
     }
     function toggle() {
       on = !on; label();
       try { localStorage.setItem('riddle-music', on ? 'on' : 'off'); } catch {}
       if (!started) { start(); return; }
-      out.volume.rampTo(on ? -10 : -Infinity, on ? 1.5 : 0.4);
+      out.volume.rampTo(on ? MASTER_DB : -Infinity, on ? 1.5 : 0.4);
       if (scratch) scratch._vol.mute = !on;
     }
     function tick() { if (started && on && scratch) scratch.triggerAttackRelease(0.03 + Math.random() * 0.03); }
@@ -1019,25 +1052,60 @@ body {
     const kick = () => { if (on) start(); removeEventListener('pointerdown', kick); removeEventListener('keydown', kick); };
     addEventListener('pointerdown', kick);
     addEventListener('keydown', kick);
-    // rising celesta glissando + airy swell for the diary opening
+    /* ---- book sound effects (all on the sfx bus) ---- */
+    const later = (ms, fn) => setTimeout(fn, ms);
+    // rising celesta glissando + airy magical swell as the diary opens
     function chime() {
-      if (!lead || !out) return;
+      if (!chimeSynth) return;
       const now = Tone.now();
-      ['E5', 'G5', 'B5', 'D#6', 'E6', 'G6', 'B6', 'E7'].forEach((n, i) => lead.triggerAttackRelease(n, '8n', now + i * 0.09, 0.5));
-      const g = new Tone.Gain(0).connect(out);
+      ['E5', 'G5', 'B5', 'D#6', 'E6', 'G6', 'B6', 'E7'].forEach((n, i) => chimeSynth.triggerAttackRelease(n, '8n', now + 0.25 + i * 0.09, 0.6));
+      const g = new Tone.Gain(0).connect(sfxVerb);
       const f = new Tone.Filter(300, 'bandpass').connect(g);
       const ns = new Tone.Noise('pink').connect(f).start();
-      g.gain.rampTo(0.22, 0.8); f.frequency.rampTo(3200, 2.2);
-      setTimeout(() => { g.gain.rampTo(0, 1.6); setTimeout(() => { ns.dispose(); f.dispose(); g.dispose(); }, 1900); }, 1000);
+      g.gain.rampTo(0.35, 0.8); f.frequency.rampTo(3200, 2.2);
+      later(1000, () => { g.gain.rampTo(0, 1.6); later(1900, () => { ns.dispose(); f.dispose(); g.dispose(); }); });
     }
-    // soft leather-on-wood thump when the cover lands
-    function thud() {
-      if (!out) return;
-      const m = new Tone.MembraneSynth({ pitchDecay: 0.04, octaves: 3, envelope: { attack: 0.001, decay: 0.35, sustain: 0 }, volume: -8 }).connect(out);
-      m.triggerAttackRelease('G1', '16n');
-      setTimeout(() => m.dispose(), 900);
+    // old leather and binding creaking as the board starts to move
+    function creak() {
+      if (!sfx) return;
+      const g = new Tone.Gain(0).connect(sfx);
+      const bp = new Tone.Filter({ frequency: 520, type: 'bandpass', Q: 9 }).connect(g);
+      const ns = new Tone.Noise('brown').connect(bp).start();
+      const lfo = new Tone.LFO({ frequency: 13, min: 380, max: 900 }).connect(bp.frequency).start();
+      const now = Tone.now();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.9, now + 0.12);
+      g.gain.linearRampToValueAtTime(0.35, now + 0.35);
+      g.gain.linearRampToValueAtTime(0.75, now + 0.55);
+      g.gain.linearRampToValueAtTime(0, now + 0.95);
+      later(1100, () => { ns.dispose(); lfo.dispose(); bp.dispose(); g.dispose(); });
     }
-    return { tick, start, chime, thud };
+    // air pushed by the cover swinging over
+    function whoosh(dur = 1.1) {
+      if (!sfx) return;
+      const g = new Tone.Gain(0).connect(sfx);
+      const bp = new Tone.Filter({ frequency: 350, type: 'bandpass', Q: 1.2 }).connect(g);
+      const ns = new Tone.Noise('pink').connect(bp).start();
+      const now = Tone.now();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.45, now + dur * 0.55);
+      g.gain.linearRampToValueAtTime(0, now + dur);
+      bp.frequency.setValueAtTime(350, now);
+      bp.frequency.exponentialRampToValueAtTime(2200, now + dur * 0.55);
+      bp.frequency.exponentialRampToValueAtTime(600, now + dur);
+      later(dur * 1000 + 150, () => { ns.dispose(); bp.dispose(); g.dispose(); });
+    }
+    // the board landing on wood: a body thump plus a papery slap small speakers can play
+    function thud(strength = 1) {
+      if (!sfx) return;
+      const body = new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 2.5, envelope: { attack: 0.001, decay: 0.22, sustain: 0 }, volume: -2 }).connect(sfx);
+      const knockF = new Tone.Filter(1400, 'lowpass').connect(sfx);
+      const knock = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.07, sustain: 0 }, volume: -6 }).connect(knockF);
+      body.triggerAttackRelease('D2', '16n', undefined, strength);
+      knock.triggerAttackRelease(0.08, undefined, strength);
+      later(800, () => { body.dispose(); knock.dispose(); knockF.dispose(); });
+    }
+    return { tick, start, chime, creak, whoosh, thud };
   })();
   quill.addEventListener('input', () => Music.tick());
 
@@ -1096,18 +1164,25 @@ body {
     const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; phaseT += dt;
     switch (phase) {
       case 'closed': glow = 0.2 + 0.1 * Math.sin(now / 650); break;
-      case 'crack':  step(18, 30, 9, 0, dt); glow = Math.min(1, glow + dt * 0.8); if (phaseT > 1.1) setPhase('fall'); break;
+      case 'crack':  step(18, 30, 9, 0, dt); glow = Math.min(1, glow + dt * 0.8); if (phaseT > 1.1) { setPhase('fall'); Music.whoosh(); } break;
       case 'fall':   step(180, 5, 1.3, G, dt); glow = Math.min(1, glow + dt);
                        if (theta >= 179.5 && Math.abs(omega) < 12) landedOpen(); break;
       case 'drag':   glow = Math.max(glow, 0.25 + 0.75 * Math.min(1, theta / 45)); break;
       case 'shut':   step(0, 6, 1.6, G, dt); glow = Math.max(0.2, glow - dt * 0.5);
                        if (theta <= 0.5 && Math.abs(omega) < 12) landedClosed(); break;
-      case 'open':   glow = Math.max(0, glow - dt * 0.4); break;
+      case 'open':   glow = Math.max(0, glow - dt * (phaseT < 0.8 ? 0.12 : 0.35)); break;
     }
     flap.style.transform = `translateZ(2px) rotateY(${-theta}deg)`;
     book.style.setProperty('--tilt', (Math.min(theta, 90) / 90).toFixed(3));
     book.style.setProperty('--glow', glow.toFixed(3));
-    book.style.setProperty('--haze', (Math.max(0, Math.min(1, (theta - 50) / 80)) * glow).toFixed(3));
+    const haze = Math.max(0, Math.min(1, (theta - 50) / 80)) * glow;
+    book.style.setProperty('--haze', haze.toFixed(3));
+    root.style.setProperty('--bloom', Math.min(1, haze * 1.25).toFixed(3));
+    if (haze > 0) {                                   // keep the bloom centred on the right page
+      const r = rightPage.getBoundingClientRect();
+      root.style.setProperty('--bloom-x', (r.left + r.width / 2) + 'px');
+      root.style.setProperty('--bloom-y', (r.top + r.height * 0.45) + 'px');
+    }
     requestAnimationFrame(physics);
   })(performance.now());
 
@@ -1115,13 +1190,13 @@ body {
     theta = 180; omega = 0; setPhase('open');
     book.classList.remove('closed');
     flap.style.visibility = 'hidden';
-    Music.thud();
+    Music.thud(0.8);
     listen();
   }
   function landedClosed() {
     theta = 0; omega = 0; setPhase('closed');
     isOpen = false;
-    Music.thud();
+    Music.thud(1);
     $('#openHint').classList.remove('hide');
   }
   function startOpen() {
@@ -1129,7 +1204,7 @@ body {
     if (!owner) { nameInput.focus(); return; }
     isOpen = true;
     $('#openHint').classList.add('hide');
-    Music.start().then(() => Music.chime());
+    Music.start().then(() => { Music.creak(); Music.chime(); });
     setPhase('crack');
   }
   function closeDiary(force) {
@@ -1141,6 +1216,7 @@ body {
     setHint('Dip your quill and write something…');
     flap.style.visibility = 'visible';
     book.classList.add('closed');
+    Music.creak(); setTimeout(() => Music.whoosh(0.9), 250);
     setPhase('shut');
   }
   $('#closeBtn').addEventListener('click', e => { e.stopPropagation(); closeDiary(); });
@@ -1159,7 +1235,7 @@ body {
       if (Math.abs(e.clientX - drag.x0) < 6) return;
       drag.moved = true; isOpen = true;
       $('#openHint').classList.add('hide');
-      Music.start();
+      Music.start().then(() => Music.creak());
       setPhase('drag');
     }
     const clamp = v => Math.max(-1, Math.min(1, v));
@@ -1173,7 +1249,7 @@ body {
     if (!drag) return;
     const d = drag; drag = null;
     if (!d.moved) return startOpen();
-    if (theta > 80 || omega > 220) { Music.chime(); setPhase('fall'); } else setPhase('shut');
+    if (theta > 80 || omega > 220) { Music.chime(); Music.whoosh(0.8); setPhase('fall'); } else setPhase('shut');
   };
   flap.addEventListener('pointerup', release);
   flap.addEventListener('pointercancel', release);
