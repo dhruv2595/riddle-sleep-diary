@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Riddle Sleep Diary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Covered+By+Your+Grace&family=Felipa&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<style>
+:root {
+  --P: 480px;            /* page width  (set by JS) */
+  --PH: 680px;           /* page height (set by JS) */
+  --bx: 0px;             /* book left offset (set by JS) */
+  --flicker: 1;
+  --mx: 0;               /* mouse parallax, -1..1 (set by JS) */
+  --my: 0;
+  --cx: 85%;
+  --cy: 18%;
+  --ink-riddle: #23170e;
+  --ink-user: #14123a;
+  --paper: #d8b886;
+  --font-riddle: 'Felipa', cursive;
+  --font-user: 'Covered By Your Grace', cursive;
+  --font-print: 'IM Fell English', Georgia, serif;
+  --fine-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.18 0 0 0 0 0.1 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --blotch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='700'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.3 0 0 0 0 0.12 0 0 0 1.6 -0.75'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E");
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: #0b0705;
+  overflow: hidden;
+  font-family: var(--font-print);
+  color: var(--ink-riddle);
+}
+
+/* ---------- Scene ---------- */
+#scene { position: fixed; inset: 0; perspective: 1700px; perspective-origin: 50% 20%; overflow: hidden; }
+/* world = everything on the table; pans as one (a camera move) for the past-pages view */
+#world { position: absolute; inset: 0; perspective: 1700px; perspective-origin: 50% 20%; transform: translateX(var(--pan, 0px)); transition: transform 1.1s cubic-bezier(.6,.05,.25,1); }
+/* photographic table plate; drifts less than the book for parallax depth */
+.tablebg {
+  position: absolute; left: -3%; top: -3%; width: 106%; height: 106%;
+  background: #0b0705 url(assets/table.jpg) center / cover no-repeat;
+  transform: translate(calc(var(--mx) * -6px), calc(var(--my) * -5px)); will-change: transform;
+}
+/* live flicker pinned to the photo flame (positioned by JS) */
+#candleGlow { position: absolute; width: 0; height: 0; pointer-events: none; }
+#candleGlow::before {
+  content: ""; position: absolute; left: -22vmin; top: -22vmin; width: 44vmin; height: 44vmin; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,214,140,.5) 0, rgba(255,170,80,.16) 30%, transparent 65%);
+  mix-blend-mode: screen; opacity: var(--flicker);
+}
+#candleGlow::after {
+  content: ""; position: absolute; left: -.7vmin; top: -2vmin; width: 1.4vmin; height: 3vmin; border-radius: 50% 50% 50% 50% / 65% 65% 35% 35%;
+  background: radial-gradient(ellipse at 50% 75%, rgba(255,255,240,.95), rgba(255,220,140,.6) 45%, transparent 75%);
+  filter: blur(1px); mix-blend-mode: screen; transform-origin: 50% 90%; animation: flame 2.4s infinite ease-in-out;
+}
+
+
+/* ---------- Book ---------- */
+.book {
+  position: absolute;
+  left: var(--bx);
+  top: calc(50% - var(--PH) / 2);
+  width: calc(var(--P) * 2);
+  height: var(--PH);
+  transform: translate(calc(var(--mx) * -10px), calc(var(--my) * -7px))
+             rotateX(calc(13deg + var(--my) * 1.6deg)) rotateY(calc(var(--mx) * 2.2deg)) rotateZ(-1.2deg);
+  transform-origin: 50% 70%;
+  z-index: 2;
+}
+.cover {
+  position: absolute; inset: -14px -16px -16px -16px;
+  border-radius: 6px 10px 10px 6px;
+  background: url(assets/cover.jpg) 0 0 / 50% 100% repeat-x;
+  box-shadow: -45px 55px 75px rgba(0,0,0,.85), -12px 14px 20px rgba(0,0,0,.6), inset 0 0 18px rgba(0,0,0,.9);
+}
+/* page block edges (stacked paper) */
+.stack {
+  position: absolute; top: 6px; bottom: -7px; width: calc(var(--P) + 6px);
+  background: repeating-linear-gradient(0deg, #cbb995 0 1px, #a8946c 1px 2px);
+  border-radius: 2px;
+}
+.stack.left { left: -6px; }
+.stack.right { right: -6px; }
+.page {
+  position: absolute; top: 0; width: var(--P); height: var(--PH);
+  background-color: var(--paper);
+  overflow: hidden;
+}
+.page::before { /* aging, foxing, fibres */
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: var(--blotch), var(--fine-noise);
+  background-size: 100% 100%, 300px 300px;
+  mix-blend-mode: multiply; opacity: .12;
+}
+.page.left { left: 0; border-radius: 3px 0 0 3px;
+  background-image: linear-gradient(90deg, rgba(40,25,10,.25), rgba(0,0,0,0) 6%, rgba(0,0,0,0) 84%, rgba(60,35,10,.3) 95%, rgba(30,15,5,.6)), url(assets/page-left.jpg);
+  background-size: 100% 100%;
+}
+.page.right { left: var(--P); border-radius: 0 3px 3px 0;
+  background-image: linear-gradient(270deg, rgba(40,25,10,.25), rgba(0,0,0,0) 6%, rgba(0,0,0,0) 84%, rgba(60,35,10,.3) 95%, rgba(30,15,5,.6)), url(assets/page-right.jpg);
+  background-size: 100% 100%;
+}
+.gutter { position: absolute; left: calc(var(--P) - 14px); top: 0; width: 28px; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(30,15,5,.35) 45%, rgba(20,10,3,.5) 50%, rgba(30,15,5,.35) 55%, transparent);
+  pointer-events: none; z-index: 2; }
+
+/* Slytherin ribbon bookmark */
+/* satin bookmark sewn into the spine: runs down the gutter, drapes past the tail edge */
+.ribbon {
+  position: absolute; left: calc(var(--P) - 7px); top: calc(var(--PH) - 10px); width: 15px; height: 84px; z-index: 3;
+  border: none; cursor: pointer; padding: 0; background: none;
+  filter: drop-shadow(-3px 3px 2px rgba(0,0,0,.45));
+  transform: rotate(.6deg); transform-origin: 50% 0;
+}
+.ribbon::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, #072416 0, #145236 30%, #2c7a55 48%, #145236 66%, #072416 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 14px), 0 100%);
+}
+.ribbon::after { /* fold where it bends over the page edge */
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 22px;
+  background: linear-gradient(180deg, rgba(0,0,0,.45), rgba(255,255,255,.08) 60%, transparent);
+}
+.ribbon:hover { filter: drop-shadow(-3px 3px 2px rgba(0,0,0,.45)) brightness(1.3); }
+.ribbon-label {
+  position: absolute; left: calc(var(--P) * 1.07); bottom: calc(var(--P) * .035); z-index: 3;
+  font: italic calc(var(--P) * .028) var(--font-print); color: rgba(60,40,20,.55); cursor: pointer;
+  background: none; border: none; white-space: nowrap;
+}
+.ribbon-label:hover { color: rgba(30,18,8,.9); text-decoration: underline dotted; }
+
+/* ---------- Right page: the conversation ---------- */
+.right .inner { position: absolute; inset: calc(var(--P) * .1) calc(var(--P) * .11) calc(var(--P) * .12) calc(var(--P) * .12); }
+.night-label {
+  font: italic calc(var(--P) * .032) var(--font-print);
+  color: rgba(50,30,12,.5); text-align: right; min-height: 1.3em; transition: opacity 1s;
+}
+#riddle {
+  margin-top: calc(var(--P) * .04);
+  font-family: var(--font-riddle);
+  font-size: calc(var(--P) * .072);
+  line-height: 1.45;
+  color: var(--ink-riddle);
+  min-height: calc(var(--P) * .3);
+  filter: url(#inkRough);
+  transition: opacity 1.4s ease, filter 1.4s ease;
+}
+#riddle p { margin-bottom: .2em; transform-origin: 0 50%; }
+.c.gone { animation: soak var(--dur, 1.4s) forwards ease-in; }
+@keyframes soak {
+  0% { opacity: var(--ink-o, .9); filter: blur(.25px); color: var(--ink-riddle); }
+  30% { opacity: var(--ink-o, .9); filter: blur(.7px); color: #000; text-shadow: 0 0 3px rgba(0,0,0,.4); }
+  100% { opacity: 0; filter: blur(4px); color: #4a3218; }
+}
+.w { white-space: nowrap; display: inline; }
+.c { opacity: 0; display: inline-block; white-space: pre; }
+.c.on { animation: inkIn 1.1s forwards ease-out; }
+@keyframes inkIn {
+  0% { opacity: 0; filter: blur(3px); color: #000; transform: translateY(1px); }
+  35% { opacity: 1; filter: blur(.6px); color: #000; text-shadow: 0 0 3px rgba(0,0,0,.45); }
+  100% { opacity: var(--ink-o, .9); filter: blur(.25px); color: var(--ink-riddle); text-shadow: 0 0 1px rgba(35,23,14,.55); }
+}
+
+.writing { position: relative; margin-top: calc(var(--P) * .05); }
+#quill {
+  width: 100%; height: calc(var(--P) * .3);
+  background: transparent; border: none; outline: none; resize: none;
+  font-family: var(--font-user); font-size: calc(var(--P) * .07); line-height: 1.15;
+  color: var(--ink-user); caret-color: var(--ink-user);
+  text-shadow: 0 0 1px rgba(20,18,58,.6);
+  filter: url(#inkRough);
+  transform: rotate(-2deg); transform-origin: 0 0;
+}
+#quill:disabled { opacity: 0; }
+#sinking {
+  position: absolute; inset: 0; pointer-events: none;
+  font-family: var(--font-user); font-size: calc(var(--P) * .07); line-height: 1.15;
+  color: var(--ink-user); white-space: pre-wrap; word-wrap: break-word;
+  filter: url(#inkRough);
+  transform: rotate(-2deg); transform-origin: 0 0;
+}
+#sinking .s { display: inline-block; white-space: pre; animation: sink var(--dur, 1.5s) forwards ease-in; }
+@keyframes sink {
+  0% { opacity: 1; filter: blur(0); }
+  25% { opacity: 1; color: #05040f; text-shadow: 0 0 4px rgba(10,8,40,.6); filter: blur(.3px); }
+  100% { opacity: 0; filter: blur(5px); transform: translateY(2px) scale(.88); color: #2a1c10; }
+}
+.stain {
+  position: absolute; left: 10%; top: 0; width: 70%; height: 70%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse, rgba(20,15,40,.18), transparent 70%);
+  animation: stain 2.4s forwards ease-out;
+}
+@keyframes stain { 0% { opacity: 0; transform: scale(.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: scale(1.2); } }
+
+.hint {
+  position: absolute; left: calc(var(--P) * .12); right: calc(var(--P) * .11); bottom: calc(var(--P) * .07);
+  font: italic calc(var(--P) * .03) var(--font-print);
+  color: rgba(60,40,20,.45); text-align: center; transition: opacity .8s;
+}
+.folio { position: absolute; bottom: calc(var(--P) * .035); font: calc(var(--P) * .026) var(--font-print); color: rgba(60,40,20,.4); }
+.right .folio { right: calc(var(--P) * .07); }
+.left .folio { left: calc(var(--P) * .07); }
+
+/* ---------- Left page: nights remembered ---------- */
+.left .inner {
+  position: absolute; inset: calc(var(--P) * .09) calc(var(--P) * .12) calc(var(--P) * .09) calc(var(--P) * .11);
+  display: flex; flex-direction: column;
+}
+.owner { font: calc(var(--P) * .05) var(--font-riddle); color: rgba(35,23,14,.38); text-align: center; }
+.left h2 {
+  font: italic calc(var(--P) * .05) var(--font-print); font-weight: normal; text-align: center;
+  color: rgba(35,23,14,.85); margin: calc(var(--P) * .015) 0 calc(var(--P) * .02);
+}
+.rule { height: 1px; margin: 0 8% calc(var(--P) * .025); background: linear-gradient(90deg, transparent, rgba(60,35,15,.5), transparent); }
+#log { flex: 1; overflow-y: auto; padding-right: 6px; scrollbar-width: thin; scrollbar-color: rgba(80,50,20,.35) transparent; }
+.entry {
+  display: grid; grid-template-columns: 1fr auto; width: 100%; text-align: left; gap: 0 10px;
+  background: none; border: none; cursor: pointer; font-family: var(--font-print); color: var(--ink-riddle);
+  padding: calc(var(--P) * .012) 4px; border-bottom: 1px dotted rgba(80,50,20,.3);
+}
+.entry:hover { background: rgba(120,80,30,.08); }
+.entry .d { font-size: calc(var(--P) * .036); }
+.entry .q { font-size: calc(var(--P) * .036); font-style: italic; text-align: right; }
+.entry .s { grid-column: 1 / -1; font-size: calc(var(--P) * .029); color: rgba(35,23,14,.65); font-style: italic; }
+.entry.fresh { animation: fresh 3s ease-out; }
+@keyframes fresh { 0% { opacity: 0; filter: blur(3px); } 100% { opacity: 1; filter: blur(0); } }
+.empty { font: italic calc(var(--P) * .036) var(--font-print); color: rgba(35,23,14,.55); text-align: center; margin-top: 20%; line-height: 1.5; }
+.detail { font-size: calc(var(--P) * .035); line-height: 1.55; }
+.detail .row { display: flex; justify-content: space-between; border-bottom: 1px dotted rgba(80,50,20,.25); }
+.detail .row span:last-child { font-style: italic; }
+.detail .notes { margin-top: .6em; font-family: var(--font-user); font-size: 1.25em; color: var(--ink-user); line-height: 1.2; }
+.linkish {
+  background: none; border: none; cursor: pointer; font: italic calc(var(--P) * .033) var(--font-print);
+  color: rgba(35,23,14,.8); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;
+}
+.linkish:hover { color: #000; }
+.exports { margin-top: calc(var(--P) * .025); text-align: center; font: italic calc(var(--P) * .031) var(--font-print); color: rgba(35,23,14,.6); }
+
+/* ---------- Light ---------- */
+.glow {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5; mix-blend-mode: soft-light;
+  background: radial-gradient(circle at var(--cx) var(--cy), rgba(255,190,100,.9) 0, rgba(255,150,60,.35) 30%, transparent 70%);
+  opacity: calc(var(--flicker) * .8);
+}
+.dark {
+  position: absolute; inset: 0; pointer-events: none; z-index: 6;
+  background:
+    radial-gradient(ellipse 75% 70% at 48% 50%, transparent 35%, rgba(5,2,0,.55) 75%, rgba(3,1,0,.92) 100%),
+    radial-gradient(circle at var(--cx) var(--cy), transparent 0, rgba(0,0,0,calc(.32 - var(--flicker) * .2)) 55%);
+}
+
+/* ---------- Closed diary & opening ---------- */
+.book { transform-style: preserve-3d; }
+.book.closed .page.left, .book.closed .stack.left, .book.closed .gutter,
+.book.closed .ribbon, .book.closed .ribbon-label { visibility: hidden; }
+.book.closed .cover { clip-path: inset(-100px -100px -100px 50%); }
+.left .inner { transition: opacity 1.8s ease .3s; }
+.book.closed .left .inner { opacity: 0; }
+.flap {
+  position: absolute; left: var(--P); top: -14px;
+  width: calc(var(--P) + 16px); height: calc(var(--PH) + 30px);
+  transform-origin: 0 50%; transform-style: preserve-3d; transform: translateZ(2px);
+  z-index: 4; cursor: pointer; outline: none;
+}
+.flap-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.flap-front {
+  border-radius: 3px 8px 8px 3px;
+  background: url(assets/cover.jpg) center / 100% 100%;
+  box-shadow: inset 0 0 14px rgba(0,0,0,.8), inset 10px 0 14px rgba(0,0,0,.7);
+}
+/* cover darkens as it tilts away from the candle */
+.flap-front::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: #000; opacity: calc(var(--tilt, 0) * .6); pointer-events: none; }
+.book.closed:not(.moving) .flap-front {
+  box-shadow: inset 0 0 22px rgba(0,0,0,.95), inset 10px 0 16px rgba(0,0,0,.8),
+              4px 5px 0 -1px #b29e78, 7px 9px 0 -1px #120d0a, -35px 45px 60px rgba(0,0,0,.8);
+}
+/* black name plate with embossed capitals, like the film prop */
+.plate {
+  position: absolute; left: 14%; right: 14%; top: 68%; height: calc(var(--P) * .085);
+  background: linear-gradient(180deg, #1b1714, #070605 55%, #141110);
+  border: 1px solid rgba(160,130,80,.35); border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgba(255,235,200,.12), inset 0 -2px 4px rgba(0,0,0,.8), 0 2px 3px rgba(0,0,0,.7), 0 -1px 0 rgba(255,220,170,.05);
+  display: flex; align-items: center; justify-content: center;
+}
+#nameInput {
+  width: 94%; background: transparent; border: none; outline: none; text-align: center;
+  font: calc(var(--P) * .036) var(--font-print); letter-spacing: .14em; text-transform: uppercase;
+  color: #cdb27a; text-shadow: 0 -1px 0 rgba(0,0,0,.9), 0 1px 0 rgba(255,230,180,.18);
+  caret-color: #e2c98f; cursor: text;
+}
+#nameInput::placeholder { color: rgba(205,178,122,.45); }
+#nameInput[readonly] { cursor: pointer; }
+.flap-back { transform: rotateY(180deg); border-radius: 8px 3px 3px 8px; background: linear-gradient(rgba(0,0,0,.4), rgba(0,0,0,.4)), url(assets/cover.jpg) center / 100% 100%; }
+/* underside of the cover catches the light from the pages */
+.flap-back::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(ellipse at 30% 50%, rgba(255,225,160,.8), rgba(255,180,90,.3) 50%, transparent 80%); opacity: var(--glow, 0); }
+.flap-back .page { left: 16px; top: 14px; }
+/* light from inside: under the cover, over the right page; spills past the edges onto the table */
+.pageglow {
+  position: absolute; left: calc(var(--P) - 40px); top: -60px; width: calc(var(--P) + 120px); height: calc(var(--PH) + 120px);
+  pointer-events: none; border-radius: 45%; filter: blur(18px);
+  background: radial-gradient(ellipse at 46% 46%, rgba(255,244,210,1) 0, rgba(255,208,120,.8) 30%, rgba(255,160,60,.28) 58%, transparent 74%);
+  opacity: var(--glow, 0);
+}
+/* haze rising off the open page (stacked planes in 3D, so it shifts with parallax) */
+.haze {
+  position: absolute; left: var(--P); top: 0; width: var(--P); height: var(--PH); pointer-events: none; border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 45%, rgba(255,230,170,.5), rgba(255,190,100,.18) 45%, transparent 70%);
+  filter: blur(30px); opacity: var(--haze, 0);
+}
+.haze.h1 { transform: translateZ(50px) scale(.9); }
+.haze.h2 { transform: translateZ(130px) scale(.72); }
+.haze.h3 { transform: translateZ(230px) scale(.55); }
+.flap { cursor: grab; touch-action: none; }
+.flap:active { cursor: grabbing; }
+.page.right::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+  background: radial-gradient(ellipse at 45% 42%, rgba(255,244,210,.95), rgba(255,205,115,.6) 35%, rgba(255,170,70,.15) 70%, transparent);
+  opacity: 0; transition: opacity 1.6s ease;
+}
+.page.right.speaking::after { opacity: .14; }
+#openHint {
+  position: fixed; left: 0; right: 0; bottom: 4vh; text-align: center; z-index: 7; pointer-events: none;
+  font: italic 18px var(--font-print); color: rgba(240,215,170,.7); animation: breathe 3s infinite ease-in-out;
+}
+#openHint.hide { animation: none; opacity: 0; transition: opacity .6s; }
+@keyframes breathe { 0%,100% { opacity: .3; } 50% { opacity: .8; } }
+
+/* ---------- Music toggle ---------- */
+#musicBtn {
+  position: fixed; left: 18px; bottom: 16px; z-index: 7;
+  background: none; border: none; cursor: pointer;
+  font: italic 16px var(--font-print); color: rgba(240,215,170,.5); letter-spacing: .03em;
+}
+#musicBtn:hover { color: rgba(255,230,190,.9); }
+
+@keyframes flame {
+  0%,100% { transform: scale(1,1) skewX(0deg); }
+  20% { transform: scale(.95,1.06) skewX(3deg); }
+  45% { transform: scale(1.04,.94) skewX(-3deg); }
+  70% { transform: scale(.97,1.09) skewX(1.5deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flame { animation: none; }
+  .book { transition: none; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- roughens glyph edges so ink looks soaked into paper rather than typeset -->
+  <filter id="inkRough" x="-5%" y="-20%" width="110%" height="140%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="3" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    <feGaussianBlur stdDeviation="0.3"/>
+  </filter>
+</svg>
+<div id="scene">
+  <div id="world">
+  <div class="tablebg"><div id="candleGlow"></div></div>
+
+  <div class="book closed" id="book">
+    <div class="cover"></div>
+    <div class="stack left"></div>
+    <div class="stack right"></div>
+
+    <section class="page left" id="leftPage" aria-label="Nights remembered">
+      <div class="inner">
+        <div class="owner" id="ownerName"></div>
+        <h2>Nights Remembered</h2>
+        <div class="rule"></div>
+        <div id="log"></div>
+        <div class="exports" id="exports">
+          Copy out as <button class="linkish" id="csvBtn">CSV</button> or <button class="linkish" id="jsonBtn">JSON</button>
+        </div>
+        <div class="exports"><button class="linkish" id="closeBtn">close the diary</button></div>
+      </div>
+      <div class="folio">xlii</div>
+    </section>
+
+    <section class="page right" id="rightPage" aria-label="Write in the diary">
+      <div class="inner">
+        <div class="night-label" id="nightLabel"></div>
+        <div id="riddle" aria-live="polite"></div>
+        <div class="writing">
+          <textarea id="quill" disabled spellcheck="false" autocomplete="off" aria-label="Write in the diary"></textarea>
+          <div id="sinking"></div>
+        </div>
+      </div>
+      <div class="hint" id="hint">Dip your quill and write something…</div>
+      <div class="folio">xliii</div>
+    </section>
+
+    <div class="gutter"></div>
+    <button class="ribbon" id="ribbon" aria-label="Turn to past pages"></button>
+    <button class="ribbon-label" id="ribbonLabel">← pages past</button>
+
+    <div class="pageglow"></div>
+    <div class="haze h1"></div><div class="haze h2"></div><div class="haze h3"></div>
+
+    <!-- front cover: closed at start, swings open around the spine (physics in JS) -->
+    <div class="flap" id="flap" role="button" tabindex="0" aria-label="Open the diary">
+      <div class="flap-face flap-front">
+        <div class="plate"><input id="nameInput" maxlength="26" spellcheck="false" autocomplete="off" placeholder="ENGRAVE YOUR NAME" aria-label="Your name"></div>
+      </div>
+      <div class="flap-face flap-back"><div class="page left"></div></div>
+    </div>
+
+  </div>
+
+
+  </div>
+  <div class="glow"></div>
+  <div class="dark"></div>
+</div>
+<button id="musicBtn" aria-label="Toggle music">♪ music: off</button>
+<div id="openHint">Click the diary, or press Enter, to open it</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const root = document.documentElement;
+  const book = $('#book'), riddleEl = $('#riddle'), quill = $('#quill'), sinking = $('#sinking');
+  const hint = $('#hint'), nightLabel = $('#nightLabel'), logEl = $('#log');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const sleep = ms => new Promise(r => setTimeout(r, reduced ? ms / 4 : ms));
+
+  /* ================= Layout ================= */
+  let viewingPast = false, isOpen = false;
+  // table photo (assets/table.jpg): where its flame is, and where the candle/inkwell start (fractions of the photo)
+  const PLATE_W = 2752, PLATE_H = 1536, FLAME = [0.789, 0.199], PROPS_X = 0.69;
+  function layout() {
+    const W = innerWidth, H = innerHeight;
+    let ph = Math.min(H * 0.8, 900);
+    let pw = ph * 0.7;
+    if (pw > W * 0.88) { pw = W * 0.88; ph = Math.min(pw / 0.7, H * 0.84); }
+    root.style.setProperty('--P', pw + 'px');
+    root.style.setProperty('--PH', ph + 'px');
+    // map the photo onto the screen (.tablebg is a 106% box with background-size: cover)
+    const bw = W * 1.06, bh = H * 1.06, sc = Math.max(bw / PLATE_W, bh / PLATE_H);
+    const ox = (bw - PLATE_W * sc) / 2, oy = (bh - PLATE_H * sc) / 2;
+    const cg = $('#candleGlow');
+    cg.style.left = (ox + FLAME[0] * PLATE_W * sc) + 'px';
+    cg.style.top = (oy + FLAME[1] * PLATE_H * sc) + 'px';
+    // right page centred, but never over the candle and inkwell
+    const propsLeft = -0.03 * W + ox + PROPS_X * PLATE_W * sc;
+    const bookRight = W < 700 ? W / 2 + pw / 2 : Math.min(W / 2 + pw / 2, propsLeft - 24);
+    root.style.setProperty('--bx', (bookRight - pw * 2) + 'px');
+    // past pages: pan the whole table (camera move) so the left page is centred
+    root.style.setProperty('--pan', viewingPast ? (W / 2 - bookRight + pw * 1.5) + 'px' : '0px');
+  }
+  addEventListener('resize', layout);
+
+  function setPast(on) {
+    viewingPast = on;
+    $('#ribbonLabel').textContent = on ? 'return to the page →' : '← pages past';
+    $('#ribbon').setAttribute('aria-label', on ? 'Return to the writing page' : 'Turn to past pages');
+    layout();
+    if (!on && !quill.disabled) setTimeout(() => quill.focus(), 600);
+  }
+  $('#ribbon').onclick = $('#ribbonLabel').onclick = () => setPast(!viewingPast);
+  $('#leftPage').addEventListener('click', e => { if (!viewingPast && !e.target.closest('button')) setPast(true); });
+  $('#rightPage').addEventListener('click', () => {
+    if (!isOpen) return;
+    if (viewingPast) setPast(false); else if (!quill.disabled) quill.focus();
+  });
+
+  /* ================= Candlelight ================= */
+  const flameEl = $('#candleGlow');
+  let fl = 1, target = 1;
+  let mx = 0, my = 0, tmx = 0, tmy = 0;   // mouse parallax (eased)
+  addEventListener('pointermove', e => {
+    tmx = e.clientX / innerWidth * 2 - 1;
+    tmy = e.clientY / innerHeight * 2 - 1;
+  });
+  document.addEventListener('pointerleave', () => { tmx = 0; tmy = 0; });
+  (function frame() {
+    if (Math.random() < 0.08) target = 0.72 + Math.random() * 0.28;
+    fl += (target - fl) * 0.12;
+    root.style.setProperty('--flicker', fl.toFixed(3));
+    const f = flameEl.getBoundingClientRect();   // light follows the photo flame as the table pans
+    root.style.setProperty('--cx', f.left + 'px');
+    root.style.setProperty('--cy', f.top + 'px');
+    if (!reduced) {
+      mx += (tmx - mx) * 0.04; my += (tmy - my) * 0.04;
+      root.style.setProperty('--mx', mx.toFixed(4));
+      root.style.setProperty('--my', my.toFixed(4));
+    }
+    requestAnimationFrame(frame);
+  })();
+
+  /* ================= Storage ================= */
+  const KEY = 'riddle-sleep-diary-v1';
+  function loadEntries() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+  }
+  function saveEntries(list) {
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
+  }
+  let entries = loadEntries();
+
+  /* ================= Formatting ================= */
+  const pad = n => String(n).padStart(2, '0');
+  const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const clock24 = m => { m = ((m % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+  const clock12 = m => {
+    m = ((m % 1440) + 1440) % 1440;
+    const h = Math.floor(m / 60), mm = m % 60;
+    if (m === 0) return 'midnight';
+    if (m === 720) return 'noon';
+    return `${h % 12 || 12}${mm ? ':' + pad(mm) : ''} ${h < 12 ? 'am' : 'pm'}`;
+  };
+  const durLong = min => {
+    const h = Math.floor(min / 60), m = min % 60;
+    const parts = [];
+    if (h) parts.push(`${h} hour${h > 1 ? 's' : ''}`);
+    if (m || !h) parts.push(`${m} minute${m === 1 ? '' : 's'}`);
+    return parts.join(' and ');
+  };
+  const durShort = min => `${Math.floor(min / 60)}h ${pad(min % 60)}m`;
+  const prettyDate = iso => {
+    const [y, mo, d] = iso.split('-').map(Number);
+    return new Date(y, mo - 1, d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  const QUALITY = ['', 'very poor', 'poor', 'fair', 'good', 'very good'];
+  const RESTED = ['', 'not at all rested', 'slightly rested', 'somewhat rested', 'well rested', 'very well rested'];
+
+  /* ================= Parsing ================= */
+  const WORDNUM = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10,
+    eleven:11, twelve:12, fifteen:15, twenty:20, thirty:30, forty:40, 'forty-five':45, fifty:50, sixty:60,
+    ninety:90, couple:2, few:3, several:4 };
+  const words2num = s => s.replace(/\b(forty-five|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|ninety|couple|few|several)\b/g, w => WORDNUM[w]);
+
+  function parseClock(raw, mode) {
+    let s = raw.toLowerCase().replace(/a\.m\.?/g, 'am').replace(/p\.m\.?/g, 'pm').trim();
+    if (/midnight/.test(s)) return 0;
+    if (/\b(noon|midday)\b/.test(s)) return 720;
+    s = words2num(s);
+    let h = null, m = 0, mer = null;
+    let r;
+    if ((r = s.match(/half past (\d{1,2})/))) { h = +r[1]; m = 30; }
+    else if ((r = s.match(/quarter past (\d{1,2})/))) { h = +r[1]; m = 15; }
+    else if ((r = s.match(/quarter to (\d{1,2})/))) { h = (+r[1] + 11) % 12 || 12; m = 45; }
+    else if ((r = s.match(/(\d{1,2}) to (\d{1,2})/))) { h = (+r[2] + 11) % 12 || 12; m = 60 - +r[1]; }
+    else if ((r = s.match(/(\d{1,2}) past (\d{1,2})/))) { h = +r[2]; m = +r[1]; }
+    else if ((r = s.match(/\bhalf (\d{1,2})\b/))) { h = +r[1]; m = 30; }
+    else if ((r = s.match(/\b(\d{1,2})(\d{2})\b/)) && !/[:.h]/.test(s)) { h = +r[1]; m = +r[2]; }
+    else if ((r = s.match(/\b(\d{1,2})(?:\s*[:.h]\s*(\d{2}))?/))) { h = +r[1]; m = r[2] ? +r[2] : 0; }
+    if (h === null || h > 23 || m > 59) return null;
+    if (/\b\d{1,2}(?:[:.]\d{2})?\s*(am|a)\b|\bam\b|morning/.test(s)) mer = 'am';
+    if (/\b\d{1,2}(?:[:.]\d{2})?\s*(pm|p)\b|\bpm\b|evening|night|afternoon/.test(s)) mer = 'pm';
+    if (/at night/.test(s) && h >= 1 && h <= 4) mer = 'am';
+    if (h >= 13 || (h === 0)) return h * 60 + m;
+    if (mer === 'am') return (h % 12) * 60 + m;
+    if (mer === 'pm') return (h % 12 + 12) * 60 + m;
+    if (mode === 'night') {
+      if (h === 12) return m;                    // 12:30 → just past midnight
+      if (h >= 6) return (h + 12) * 60 + m;      // 6–11 → evening
+      return h * 60 + m;                          // 1–5 → small hours
+    }
+    if (h === 12) return 720 + m;
+    if (h >= 3) return h * 60 + m;               // morning
+    return (h + 12) * 60 + m;                    // 1–2 → afternoon
+  }
+
+  function parseDuration(raw) {
+    let s = raw.toLowerCase().trim();
+    if (/^(no|nope|none|nothing|never|zero|0|nah|not at all|didn'?t|did not|n\/a)\b/.test(s)) return 0;
+    if (/instant|immediately|straight away|right away|at once|out like a light/.test(s)) return 1;
+    if (/\bhalf (an? )?hour\b/.test(s) && !/\d/.test(s)) return 30;
+    if (/quarter (of an )?hour/.test(s)) return 15;
+    const half = /and a half|½/.test(s);
+    s = s.replace(/and a half|½/g, '');
+    s = s.replace(/\ban?\b(?=\s*(hour|hr|min))/g, '1');
+    s = words2num(s);
+    let r;
+    if ((r = s.match(/\b(\d{1,2}):(\d{2})\b/))) return +r[1] * 60 + +r[2];
+    const hr = s.match(/(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours)\b/);
+    const mn = s.match(/(\d+)\s*(m|min|mins|minute|minutes)\b/);
+    if (hr || mn) {
+      let t = (hr ? parseFloat(hr[1]) * 60 : 0) + (mn ? +mn[1] : 0) + (half && hr ? 30 : 0);
+      return Math.round(t);
+    }
+    if ((r = s.match(/(\d+(?:\.\d+)?)/))) return Math.round(parseFloat(r[1]));
+    return null;
+  }
+
+  function parseCount(raw) {
+    let s = raw.toLowerCase().trim();
+    if (/\b(no|none|never|zero|nil|nothing|didn'?t|did not|not once|not a single|nope|nah)\b/.test(s) && !/\d/.test(s)) return 0;
+    if (/\bonce\b/.test(s)) return 1;
+    if (/\btwice\b/.test(s)) return 2;
+    if (/\bthrice\b/.test(s)) return 3;
+    s = words2num(s);
+    const r = s.match(/(\d+)/);
+    if (r) return +r[1];
+    if (/\ban?\b/.test(s)) return 1;
+    return null;
+  }
+
+  function parseScale(raw, table) {
+    const s = raw.toLowerCase().trim();
+    const d = s.match(/\b([1-5])\b/);
+    if (d) return +d[1];
+    for (const [re, v] of table) if (re.test(s)) return v;
+    return null;
+  }
+  const QUALITY_TABLE = [
+    [/very poor|very bad|terrible|awful|horrible|dreadful|abysmal|worst|appalling/, 1],
+    [/very good|excellent|great|wonderful|amazing|brilliant|fantastic|perfect|superb|marvellous|marvelous/, 5],
+    [/not bad|not too bad/, 3],
+    [/not (so |very |too |that )?(good|great|well)|poor|bad|rough|rubbish/, 2],
+    [/fair|ok|okay|alright|all right|average|meh|so-so|decent|fine|middling/, 3],
+    [/good|well|nice|solid|lovely/, 4],
+  ];
+  const RESTED_TABLE = [
+    [/not at all|exhausted|shattered|knackered|wrecked|dead|terrible|awful/, 1],
+    [/not very|slightly|a little|a bit|barely|not really|tired|groggy|poor/, 2],
+    [/very|fully|completely|refreshed|great|excellent|wonderful|amazing/, 5],
+    [/somewhat|moderately|ok|okay|fair|sort of|kind of|kinda|average|meh|alright/, 3],
+    [/well|rested|good|fine/, 4],
+  ];
+
+  /* time ordering: everything as minutes after midnight on the evening's day */
+  const bedAbs = t => (t < 15 * 60 ? t + 1440 : t);
+  function after(prev, t) { let v = t; while (v < prev) v += 1440; return v; }
+
+  /* ================= Questions (Consensus Sleep Diary + expanded items) ================= */
+  const Q = [
+    { key: 'bed', ask: 'At what hour did you climb into bed last night?', hint: 'e.g. 10:45 pm',
+      parse: s => { const t = parseClock(s, 'night'); return t === null ? null : bedAbs(t); },
+      retry: 'The ink blurs… tell me the hour plainly. Half past ten, perhaps, or 22:30.' },
+    { key: 'tryAt', ask: 'And when did you put out the light and truly try to sleep?', hint: 'e.g. 11:15 pm',
+      parse: (s, d) => { const t = parseClock(s, 'night'); return t === null ? null : after(d.bed, t); },
+      check: (v, d) => v - d.bed > 12 * 60 ? 'Before you had even climbed into bed? Surely not. When did you try to sleep?' : null,
+      retry: 'An hour, if you please — like 11:15 pm.' },
+    { key: 'latency', ask: 'How long did sleep take to find you?', hint: 'e.g. 20 minutes',
+      parse: parseDuration, check: v => v > 12 * 60 ? 'That long? Tell me again, in minutes or hours.' : null,
+      retry: 'How long, exactly? Twenty minutes… an hour…',
+      react: v => v >= 45 ? 'So long in the dark. I know that feeling rather well.' : v <= 5 ? 'Swift — like a Stunning Spell.' : null },
+    { key: 'wakes', ask: 'How many times did you wake in the night — not counting your final waking?', hint: 'e.g. twice, or none',
+      parse: parseCount, check: v => v > 40 ? 'Come now. How many times, truly?' : null,
+      retry: 'A number, if you please. None, once, twice…',
+      react: v => v >= 3 ? 'Restless. Something troubles you, perhaps.' : v === 0 ? 'Not once? How peaceful.' : null },
+    { key: 'waso', ask: 'And all told, how long did those wakings last?', hint: 'e.g. 30 minutes',
+      skip: d => d.wakes === 0, parse: parseDuration, retry: 'In minutes or hours — say, a quarter of an hour.' },
+    { key: 'finalWake', ask: 'At what hour did you wake for the last time?', hint: 'e.g. 6:50 am',
+      parse: (s, d) => { const t = parseClock(s, 'morning'); return t === null ? null : after(d.tryAt, t); },
+      check: (v, d) => v - d.tryAt > 20 * 60 ? 'That cannot be right — you would have slept the whole day through. When did you wake?' : null,
+      retry: 'The hour you woke — 6:50 am, or thereabouts.' },
+    { key: 'rise', ask: 'And when did you finally rise from bed?', hint: 'e.g. 7:15 am',
+      parse: (s, d) => { const t = parseClock(s, 'morning'); return t === null ? null : after(d.finalWake, t); },
+      check: (v, d) => v - d.finalWake > 12 * 60 ? 'You rose before you woke? Curious magic indeed. When did you get up?' : null,
+      retry: 'When did you leave your bed? 7:15 am, say.' },
+    { key: 'quality', ask: 'How would you judge the quality of your sleep? Very poor, poor, fair, good, or very good?', hint: 'one of the five — or 1 to 5',
+      parse: s => parseScale(s, QUALITY_TABLE), retry: 'Choose, if you would: very poor, poor, fair, good, or very good.',
+      react: v => v >= 4 ? 'Good. I am glad.' : v <= 2 ? 'A pity.' : null },
+    { key: 'rested', ask: 'And on waking, how rested did you feel? Not at all, slightly, somewhat, well, or very well?', hint: 'one of the five — or 1 to 5',
+      parse: s => parseScale(s, RESTED_TABLE), retry: 'Not at all, slightly, somewhat, well, or very well?' },
+    { key: 'nap', ask: 'Did you nap at all yesterday? If so, for how long?', hint: 'e.g. 20 minutes, or no',
+      parse: s => /^\s*(yes|yeah|yep|i did)\s*\.?$/i.test(s) ? null : parseDuration(s), retry: 'For how long? In minutes, if you please.' },
+    { key: 'caffeine', ask: 'How many cups of tea, coffee, or other such stimulants did you take yesterday?', hint: 'e.g. 2',
+      parse: parseCount, retry: 'How many cups? A number will do.',
+      react: v => v >= 4 ? 'Rather a lot. Even Professor Slughorn would raise an eyebrow.' : null },
+    { key: 'alcohol', ask: 'And how many drinks of something stronger? Firewhisky counts, I am afraid.', hint: 'e.g. none',
+      parse: parseCount, retry: 'How many? None is a perfectly good answer.',
+      react: v => v >= 3 ? 'Hm. Do mind the firewhisky.' : null },
+    { key: 'notes', ask: 'Is there anything else about the night you wish to confide in me? Dreams, perhaps…', hint: 'anything at all — or simply “no”',
+      parse: s => /^\s*(no|nope|none|nothing|nah|n\/a|no thanks)\s*\.?\s*$/i.test(s) ? '' : s.trim(),
+      react: v => /dream|nightmare/i.test(v) ? 'Dreams… how very interesting. I shall keep that close.' : v ? 'I shall remember that.' : null,
+      multiline: true },
+  ];
+
+  /* ================= Writing effects ================= */
+  async function riddleWrite(text) {
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const p = document.createElement('p');
+    p.style.transform = `rotate(${rnd(-3.5, -0.5)}deg)`;   // hand-written lines drift uphill
+    p.style.marginLeft = rnd(0, 4) + '%';
+    riddleEl.appendChild(p);
+    const chars = [];
+    text.split(/(\s+)/).forEach(tok => {
+      if (!tok) return;
+      if (/^\s+$/.test(tok)) { p.appendChild(document.createTextNode(' ')); return; }
+      const w = document.createElement('span'); w.className = 'w';
+      for (const ch of tok) {
+        const c = document.createElement('span'); c.className = 'c'; c.textContent = ch;
+        c.style.rotate = rnd(-4, 3) + 'deg';
+        c.style.translate = `0 ${rnd(-1.5, 1.5)}px`;
+        c.style.scale = rnd(0.94, 1.07).toFixed(3);
+        c.style.setProperty('--ink-o', rnd(0.72, 0.95).toFixed(2));
+        w.appendChild(c); chars.push(c);
+      }
+      p.appendChild(w);
+    });
+    rightPage.classList.add('speaking');
+    for (const c of chars) {
+      c.classList.add('on');
+      const ch = c.textContent;
+      await sleep(/[.?!…]/.test(ch) ? 260 : /[,—;]/.test(ch) ? 140 : 34 + Math.random() * 22);
+    }
+    rightPage.classList.remove('speaking');
+  }
+  /* Ink soaks away in blotches: a few random "soak points" per text, each letter
+     fades later the further it is from its nearest point — never left-to-right. */
+  function soakDelays(n) {
+    const k = Math.max(2, Math.round(n / 8));
+    const centres = Array.from({ length: k }, () => Math.floor(Math.random() * n));
+    return Array.from({ length: n }, (_, i) =>
+      Math.min(...centres.map(c => Math.abs(c - i))) * 55 + Math.random() * 300);
+  }
+  async function riddleVanish() {
+    const chars = [...riddleEl.querySelectorAll('.c')];
+    if (!chars.length) { riddleEl.innerHTML = ''; return; }
+    const delays = soakDelays(chars.length);
+    chars.forEach((c, i) => {
+      c.style.setProperty('--dur', (1.1 + Math.random() * 0.8).toFixed(2) + 's');
+      c.style.animationDelay = (reduced ? 0 : delays[i]) + 'ms';
+      c.classList.add('gone');
+    });
+    await sleep(Math.max(...delays) + 1900);
+    riddleEl.innerHTML = '';
+  }
+  async function say(...lines) {
+    for (const l of lines) { await riddleWrite(l); await sleep(500); }
+  }
+  function sinkInk(text) {
+    sinking.innerHTML = '';
+    const stain = document.createElement('div'); stain.className = 'stain';
+    sinking.appendChild(stain);
+    const chars = [...text];
+    const delays = soakDelays(chars.length).map(d => d * 0.6);
+    chars.forEach((ch, i) => {
+      if (ch === '\n') { sinking.appendChild(document.createElement('br')); return; }
+      const s = document.createElement('span'); s.className = 's'; s.textContent = ch;
+      s.style.animationDelay = delays[i] + 'ms';
+      s.style.setProperty('--dur', (1.1 + Math.random() * 0.7).toFixed(2) + 's');
+      sinking.appendChild(s);
+    });
+    setTimeout(() => { sinking.innerHTML = ''; }, Math.max(...delays) + 2000);
+  }
+
+  function setHint(t) { hint.style.opacity = 0; setTimeout(() => { hint.textContent = t; hint.style.opacity = 1; }, 400); }
+  function listen() {
+    quill.disabled = false; quill.value = '';
+    if (!viewingPast) quill.focus();
+  }
+
+  /* ================= Conversation ================= */
+  let mode = 'idle';     // idle → asking → done
+  let qi = 0, data = {};
+  const nightOf = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDate(d); };
+
+  async function ask() {
+    while (qi < Q.length && Q[qi].skip && Q[qi].skip(data)) { data[Q[qi].key] = 0; qi++; }
+    if (qi >= Q.length) return finish();
+    const q = Q[qi];
+    setHint(q.hint);
+    await riddleWrite(q.ask);
+    listen();
+  }
+
+  async function onSubmit(text) {
+    quill.disabled = true;
+    sinkInk(text);
+    await sleep(1300);
+    if (mode === 'idle') {
+      await riddleVanish();
+      mode = 'asking'; qi = 0; data = {};
+      const night = nightOf();
+      nightLabel.textContent = 'Night of ' + prettyDate(night).replace(/ \d{4}$/, '');
+      const known = entries.some(e => e.nightOf === night);
+      if (!entries.length) {
+        await say(`Hello, ${owner.split(' ')[0]}. My name is Tom Riddle.`);
+        await sleep(700);
+        await say('I keep a record of how people sleep. Will you tell me about last night?');
+      } else if (known) {
+        await say('You have told me of last night already… but tell me again, if you wish. I shall keep the truer account.');
+      } else {
+        await say('Ah — you have returned. Tell me about last night.');
+      }
+      await sleep(1100);
+      await riddleVanish();
+      return ask();
+    }
+    const q = Q[qi];
+    await riddleVanish();
+    const v = q.parse(text, data);
+    const problem = v === null || Number.isNaN(v) ? q.retry : q.check ? q.check(v, data) : null;
+    if (problem) { await riddleWrite(problem); return listen(); }
+    data[q.key] = v;
+    const r = q.react && q.react(v);
+    if (r) { await riddleWrite(r); await sleep(900); await riddleVanish(); }
+    qi++;
+    ask();
+  }
+
+  async function finish() {
+    mode = 'done';
+    const tib = data.rise - data.bed;
+    const tst = Math.max(0, Math.min(tib, data.finalWake - data.tryAt - data.latency - data.waso));
+    const se = tib > 0 ? Math.round(tst / tib * 100) : 0;
+    const entry = {
+      nightOf: nightOf(),
+      bedTime: clock24(data.bed), trySleepTime: clock24(data.tryAt),
+      sleepLatencyMin: data.latency, awakenings: data.wakes, wasoMin: data.waso,
+      finalWakeTime: clock24(data.finalWake), outOfBedTime: clock24(data.rise),
+      quality: data.quality, qualityLabel: QUALITY[data.quality],
+      rested: data.rested, restedLabel: RESTED[data.rested],
+      napMin: data.nap, caffeineDrinks: data.caffeine, alcoholDrinks: data.alcohol,
+      timeInBedMin: tib, totalSleepMin: tst, sleepEfficiencyPct: se,
+      notes: data.notes, recordedAt: new Date().toISOString(),
+    };
+    entries = entries.filter(e => e.nightOf !== entry.nightOf).concat(entry).sort((a, b) => b.nightOf.localeCompare(a.nightOf));
+    saveEntries(entries);
+    setHint('');
+    await say(`So. You lay abed ${durLong(tib)}, and slept ${durLong(tst)} of it.`);
+    await say(`${se} parts in a hundred of your night, spent asleep.`);
+    await say(
+      se >= 90 ? 'Remarkable. Few sleep so soundly.' :
+      se >= 85 ? 'Respectable — healthy, by any Healer’s measure.' :
+      se >= 75 ? 'Not bad… though the night kept some of it from you.' :
+                 'Restless, wasn’t it? I understand. Fifty years shut inside a diary does little for one’s sleep.');
+    renderLog(entry.nightOf);
+    await sleep(900);
+    await say('I shall keep this safe. Come back tomorrow, and tell me more…');
+    await sleep(3800);
+    await riddleVanish();
+    await sleep(600);
+    closeDiary(true);                         // the night is recorded: the diary closes itself
+  }
+
+  quill.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !(e.shiftKey && mode === 'asking' && Q[qi] && Q[qi].multiline)) {
+      e.preventDefault();
+      const t = quill.value.trim();
+      if (t && !quill.disabled) onSubmit(t);
+    }
+  });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && viewingPast) setPast(false); });
+
+  /* ================= Nights remembered ================= */
+  function renderLog(freshNight) {
+    logEl.innerHTML = '';
+    $('#exports').style.visibility = entries.length ? 'visible' : 'hidden';
+    if (!entries.length) {
+      logEl.innerHTML = '<p class="empty">No nights recorded yet.<br>Write on the facing page,<br>and I shall answer.</p>';
+      return;
+    }
+    entries.forEach(e => {
+      const b = document.createElement('button');
+      b.className = 'entry' + (e.nightOf === freshNight ? ' fresh' : '');
+      b.innerHTML = `<span class="d"></span><span class="q"></span><span class="s"></span>`;
+      b.querySelector('.d').textContent = prettyDate(e.nightOf).replace(/ \d{4}$/, '');
+      b.querySelector('.q').textContent = e.qualityLabel;
+      b.querySelector('.s').textContent = `${durShort(e.totalSleepMin)} asleep · ${e.sleepEfficiencyPct}% efficient · ${e.awakenings} waking${e.awakenings === 1 ? '' : 's'}`;
+      b.onclick = () => showEntry(e);
+      logEl.appendChild(b);
+    });
+  }
+  function showEntry(e) {
+    const rows = [
+      ['Into bed', clock12(toMin(e.bedTime))], ['Tried to sleep', clock12(toMin(e.trySleepTime))],
+      ['Took to fall asleep', durShort(e.sleepLatencyMin)], ['Wakings', e.awakenings],
+      ['Awake in the night', durShort(e.wasoMin)], ['Final waking', clock12(toMin(e.finalWakeTime))],
+      ['Out of bed', clock12(toMin(e.outOfBedTime))], ['Time in bed', durShort(e.timeInBedMin)],
+      ['Asleep', durShort(e.totalSleepMin)], ['Sleep efficiency', e.sleepEfficiencyPct + '%'],
+      ['Quality', e.qualityLabel], ['On waking', e.restedLabel],
+      ['Naps', e.napMin ? durShort(e.napMin) : 'none'], ['Tea & coffee', e.caffeineDrinks], ['Stronger drink', e.alcoholDrinks],
+    ];
+    logEl.innerHTML = '';
+    const d = document.createElement('div'); d.className = 'detail';
+    const back = document.createElement('button'); back.className = 'linkish'; back.textContent = '← all nights';
+    back.onclick = () => renderLog();
+    const title = document.createElement('div');
+    title.style.cssText = 'text-align:center;font-style:italic;margin:.3em 0 .4em';
+    title.textContent = 'Night of ' + prettyDate(e.nightOf);
+    d.append(back, title);
+    rows.forEach(([k, v]) => {
+      const r = document.createElement('div'); r.className = 'row';
+      const a = document.createElement('span'); a.textContent = k;
+      const b = document.createElement('span'); b.textContent = v;
+      r.append(a, b); d.appendChild(r);
+    });
+    if (e.notes) { const n = document.createElement('div'); n.className = 'notes'; n.textContent = '“' + e.notes + '”'; d.appendChild(n); }
+    logEl.appendChild(d);
+  }
+  const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+
+  /* ================= Export ================= */
+  const COLS = [
+    ['night_of', 'nightOf'], ['bed_time', 'bedTime'], ['try_to_sleep_time', 'trySleepTime'],
+    ['sleep_onset_latency_min', 'sleepLatencyMin'], ['awakenings', 'awakenings'], ['waso_min', 'wasoMin'],
+    ['final_awakening_time', 'finalWakeTime'], ['out_of_bed_time', 'outOfBedTime'],
+    ['sleep_quality_1to5', 'quality'], ['sleep_quality', 'qualityLabel'],
+    ['rested_1to5', 'rested'], ['rested', 'restedLabel'],
+    ['nap_min', 'napMin'], ['caffeine_drinks', 'caffeineDrinks'], ['alcohol_drinks', 'alcoholDrinks'],
+    ['time_in_bed_min', 'timeInBedMin'], ['total_sleep_time_min', 'totalSleepMin'],
+    ['sleep_efficiency_pct', 'sleepEfficiencyPct'], ['comments', 'notes'], ['recorded_at', 'recordedAt'],
+  ];
+  function download(name, text, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  const csvCell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  $('#csvBtn').onclick = e => {
+    e.stopPropagation();
+    const lines = [COLS.map(c => c[0]).join(',')].concat(
+      [...entries].reverse().map(en => COLS.map(c => csvCell(en[c[1]])).join(',')));
+    download(`sleep-diary-${isoDate(new Date())}.csv`, lines.join('\n'), 'text/csv');
+  };
+  $('#jsonBtn').onclick = e => {
+    e.stopPropagation();
+    download(`sleep-diary-${isoDate(new Date())}.json`, JSON.stringify([...entries].reverse(), null, 2), 'application/json');
+  };
+
+  /* ================= Music ================= */
+  /* Original music-box waltz in E minor (3/4). Edit MELODY / CHORDS / BPM to change it.
+     Each bar = 3 beats; a nested array splits a beat into eighths; null = rest. */
+  const Music = (() => {
+    const BPM = 66;
+    const MELODY = [
+      ['E5', ['G5', 'F#5'], 'E5'], ['B4', null, null], ['C5', ['E5', 'D#5'], 'E5'], ['B4', null, null],
+      ['A4', ['C5', 'B4'], 'A4'], ['F#4', ['G4', 'A4'], 'B4'], ['G4', 'F#4', 'D#4'], ['E4', null, null],
+      ['B4', ['E5', 'G5'], 'B5'], ['A5', null, 'G5'], ['F#5', ['A5', 'G5'], 'F#5'], ['D#5', null, 'B4'],
+      ['C5', ['E5', 'A5'], 'G5'], ['F#5', ['E5', 'D#5'], 'E5'], ['B4', ['C5', 'A4'], 'D#5'], ['E5', null, null],
+    ];
+    const CHORDS = [
+      ['E2', 'E3', 'G3', 'B3'], ['E2', 'E3', 'G3', 'B3'], ['A2', 'A3', 'C4', 'E4'], ['E2', 'E3', 'G3', 'B3'],
+      ['A2', 'A3', 'C4', 'E4'], ['D#2', 'F#3', 'A3', 'B3'], ['B1', 'F#3', 'A3', 'D#4'], ['E2', 'E3', 'G3', 'B3'],
+      ['E2', 'E3', 'G3', 'B3'], ['C2', 'C3', 'E3', 'A3'], ['B1', 'F#3', 'B3', 'D#4'], ['B1', 'F#3', 'A3', 'D#4'],
+      ['A2', 'A3', 'C4', 'E4'], ['B1', 'E3', 'G3', 'B3'], ['B1', 'F#3', 'A3', 'D#4'], ['E2', 'E3', 'G3', 'B3'],
+    ];
+    let started = false, on = true, out, scratch;
+    try { on = localStorage.getItem('riddle-music') !== 'off'; } catch {}
+    const btn = $('#musicBtn');
+    const label = () => { btn.textContent = on ? '♪ music: on' : '♪ music: off'; };
+
+    let startP, lead;
+    const start = () => (startP = startP || _start());
+    async function _start() {
+      if (started || typeof Tone === 'undefined') return;
+      started = true;
+      await Tone.start();
+      out = new Tone.Volume(on ? -10 : -Infinity).toDestination();
+      const reverb = new Tone.Reverb({ decay: 7, wet: 0.55 }).connect(out);
+      const echo = new Tone.FeedbackDelay({ delayTime: '4n.', feedback: 0.25, wet: 0.18 }).connect(reverb);
+
+      // celesta / music box lead
+      const celesta = new Tone.PolySynth(Tone.FMSynth, {
+        harmonicity: 3.01, modulationIndex: 6,
+        oscillator: { type: 'sine' }, modulation: { type: 'sine' },
+        envelope: { attack: 0.002, decay: 1.4, sustain: 0, release: 1.6 },
+        modulationEnvelope: { attack: 0.002, decay: 0.35, sustain: 0, release: 0.5 },
+        volume: -14,
+      }).connect(echo);
+      lead = celesta;
+      // dark string pad
+      const pad = new Tone.PolySynth(Tone.AMSynth, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 1.2, decay: 0.5, sustain: 0.8, release: 2.5 },
+        volume: -30,
+      }).connect(reverb);
+      // low harp bass
+      const bass = new Tone.Synth({
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.01, decay: 2, sustain: 0, release: 1.5 }, volume: -16,
+      }).connect(reverb);
+      // faint room / candle air
+      const air = new Tone.Noise('brown').connect(new Tone.Filter(400, 'lowpass').connect(new Tone.Volume(-42).connect(out)));
+      air.start();
+
+      // quill scratch for typing
+      const scratchVol = new Tone.Volume(-30).toDestination();
+      scratch = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.002, decay: 0.05, sustain: 0 } })
+        .connect(new Tone.Filter(3800, 'bandpass').connect(scratchVol));
+      scratch._vol = scratchVol;
+      scratchVol.mute = !on;
+
+      Tone.Transport.bpm.value = BPM;
+      Tone.Transport.timeSignature = 3;
+      new Tone.Sequence((t, n) => { if (n) celesta.triggerAttackRelease(n, '8n', t, 0.55 + Math.random() * 0.25); },
+        MELODY.flat(), '4n').start('1m');
+      let bar = 0;
+      new Tone.Loop(t => {
+        const ch = CHORDS[bar % CHORDS.length];
+        bass.triggerAttackRelease(ch[0], '2n.', t, 0.7);
+        pad.triggerAttackRelease(ch.slice(1), '2n.', t, 0.35);
+        // soft upper arpeggio on beats 2 and 3
+        const beat = Tone.Time('4n').toSeconds();
+        celesta.triggerAttackRelease(Tone.Frequency(ch[2]).transpose(12), '8n', t + beat, 0.18);
+        celesta.triggerAttackRelease(Tone.Frequency(ch[3]).transpose(12), '8n', t + beat * 2, 0.18);
+        bar++;
+      }, '1m').start(0);
+      Tone.Transport.start('+0.1');
+      if (on) { out.volume.value = -40; out.volume.rampTo(-10, 4); }
+    }
+    function toggle() {
+      on = !on; label();
+      try { localStorage.setItem('riddle-music', on ? 'on' : 'off'); } catch {}
+      if (!started) { start(); return; }
+      out.volume.rampTo(on ? -10 : -Infinity, on ? 1.5 : 0.4);
+      if (scratch) scratch._vol.mute = !on;
+    }
+    function tick() { if (started && on && scratch) scratch.triggerAttackRelease(0.03 + Math.random() * 0.03); }
+    label();
+    btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+    const kick = () => { if (on) start(); removeEventListener('pointerdown', kick); removeEventListener('keydown', kick); };
+    addEventListener('pointerdown', kick);
+    addEventListener('keydown', kick);
+    // rising celesta glissando + airy swell for the diary opening
+    function chime() {
+      if (!lead || !out) return;
+      const now = Tone.now();
+      ['E5', 'G5', 'B5', 'D#6', 'E6', 'G6', 'B6', 'E7'].forEach((n, i) => lead.triggerAttackRelease(n, '8n', now + i * 0.09, 0.5));
+      const g = new Tone.Gain(0).connect(out);
+      const f = new Tone.Filter(300, 'bandpass').connect(g);
+      const ns = new Tone.Noise('pink').connect(f).start();
+      g.gain.rampTo(0.22, 0.8); f.frequency.rampTo(3200, 2.2);
+      setTimeout(() => { g.gain.rampTo(0, 1.6); setTimeout(() => { ns.dispose(); f.dispose(); g.dispose(); }, 1900); }, 1000);
+    }
+    // soft leather-on-wood thump when the cover lands
+    function thud() {
+      if (!out) return;
+      const m = new Tone.MembraneSynth({ pitchDecay: 0.04, octaves: 3, envelope: { attack: 0.001, decay: 0.35, sustain: 0 }, volume: -8 }).connect(out);
+      m.triggerAttackRelease('G1', '16n');
+      setTimeout(() => m.dispose(), 900);
+    }
+    return { tick, start, chime, thud };
+  })();
+  quill.addEventListener('input', () => Music.tick());
+
+  /* ================= Start ================= */
+  layout();
+  renderLog();
+  if (entries.length) setHint('Dip your quill and write something… I remember you.');
+  document.fonts && document.fonts.ready.then(layout);
+
+  /* ================= Opening the diary ================= */
+  const flap = $('#flap'), rightPage = $('#rightPage');
+  /* owner name: engraved on the cover plate, written on the first page */
+  const nameInput = $('#nameInput');
+  let owner = '';
+  try { owner = localStorage.getItem('riddle-owner') || ''; } catch {}
+  function showOwner() {
+    nameInput.value = owner;
+    nameInput.readOnly = !!owner;
+    $('#ownerName').textContent = owner || '';
+    $('#openHint').textContent = owner
+      ? 'Click the diary, or press Enter, to open it'
+      : 'Engrave your name on the cover, then press Enter';
+  }
+  showOwner();
+  if (!owner) setTimeout(() => nameInput.focus(), 400);
+  nameInput.addEventListener('click', e => {
+    e.stopPropagation();
+    if (nameInput.readOnly && !isOpen) { nameInput.readOnly = false; nameInput.select(); }
+  });
+  nameInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || nameInput.readOnly) return;
+    e.preventDefault(); e.stopPropagation();
+    const v = nameInput.value.trim().replace(/\s+/g, ' ');
+    if (!v) return;
+    owner = v;
+    try { localStorage.setItem('riddle-owner', owner); } catch {}
+    showOwner();
+    nameInput.blur();
+  });
+
+  /* ================= Cover physics =================
+     The cover is a stiff board hinged at the spine. Angle θ: 0 = closed, 180 = flat open on the left.
+     A spring pulls toward a target, gravity pulls toward whichever side it leans, damping bleeds energy:
+     it cracks open (light leaks from inside), gravity takes over past vertical, and it lands with a bounce.
+     It can also be dragged by hand and released. */
+  const D2R = Math.PI / 180, G = 520;              // gravity torque, deg/s² at horizontal
+  let theta = 0, omega = 0, phase = 'closed', phaseT = 0, glow = 0.25, lastT = performance.now(), drag = null;
+  function setPhase(p) { phase = p; phaseT = 0; book.classList.toggle('moving', p !== 'closed'); }
+  function step(target, k, c, g, dt) {
+    omega += (k * (target - theta) - c * omega - g * Math.cos(theta * D2R)) * dt;
+    theta += omega * dt;
+    if (theta > 180) { theta = 180; if (omega > 0) omega *= -0.22; }
+    if (theta < 0) { theta = 0; if (omega < 0) omega *= -0.2; }
+  }
+  (function physics(now) {
+    const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; phaseT += dt;
+    switch (phase) {
+      case 'closed': glow = 0.2 + 0.1 * Math.sin(now / 650); break;
+      case 'crack':  step(18, 30, 9, 0, dt); glow = Math.min(1, glow + dt * 0.8); if (phaseT > 1.1) setPhase('fall'); break;
+      case 'fall':   step(180, 5, 1.3, G, dt); glow = Math.min(1, glow + dt);
+                       if (theta >= 179.5 && Math.abs(omega) < 12) landedOpen(); break;
+      case 'drag':   glow = Math.max(glow, 0.25 + 0.75 * Math.min(1, theta / 45)); break;
+      case 'shut':   step(0, 6, 1.6, G, dt); glow = Math.max(0.2, glow - dt * 0.5);
+                       if (theta <= 0.5 && Math.abs(omega) < 12) landedClosed(); break;
+      case 'open':   glow = Math.max(0, glow - dt * 0.4); break;
+    }
+    flap.style.transform = `translateZ(2px) rotateY(${-theta}deg)`;
+    book.style.setProperty('--tilt', (Math.min(theta, 90) / 90).toFixed(3));
+    book.style.setProperty('--glow', glow.toFixed(3));
+    book.style.setProperty('--haze', (Math.max(0, Math.min(1, (theta - 50) / 80)) * glow).toFixed(3));
+    requestAnimationFrame(physics);
+  })(performance.now());
+
+  function landedOpen() {
+    theta = 180; omega = 0; setPhase('open');
+    book.classList.remove('closed');
+    flap.style.visibility = 'hidden';
+    Music.thud();
+    listen();
+  }
+  function landedClosed() {
+    theta = 0; omega = 0; setPhase('closed');
+    isOpen = false;
+    Music.thud();
+    $('#openHint').classList.remove('hide');
+  }
+  function startOpen() {
+    if (phase !== 'closed') return;
+    if (!owner) { nameInput.focus(); return; }
+    isOpen = true;
+    $('#openHint').classList.add('hide');
+    Music.start().then(() => Music.chime());
+    setPhase('crack');
+  }
+  function closeDiary(force) {
+    if (phase !== 'open' || (quill.disabled && !force)) return;   // by hand: only while the diary is waiting for you
+    if (viewingPast) setPast(false);
+    quill.disabled = true; quill.value = '';
+    mode = 'idle'; qi = 0; data = {};
+    riddleEl.innerHTML = ''; nightLabel.textContent = '';
+    setHint('Dip your quill and write something…');
+    flap.style.visibility = 'visible';
+    book.classList.add('closed');
+    setPhase('shut');
+  }
+  $('#closeBtn').addEventListener('click', e => { e.stopPropagation(); closeDiary(); });
+
+  // drag the cover by hand
+  flap.addEventListener('pointerdown', e => {
+    if (phase !== 'closed' || e.target === nameInput) return;
+    if (!owner) { nameInput.focus(); return; }
+    const r = rightPage.getBoundingClientRect();
+    drag = { x0: e.clientX, spine: r.left, w: r.width, moved: false, t: performance.now() };
+    flap.setPointerCapture(e.pointerId);
+  });
+  flap.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.x0) < 6) return;
+      drag.moved = true; isOpen = true;
+      $('#openHint').classList.add('hide');
+      Music.start();
+      setPhase('drag');
+    }
+    const clamp = v => Math.max(-1, Math.min(1, v));
+    const u0 = clamp((drag.x0 - drag.spine) / drag.w), u = clamp((e.clientX - drag.spine) / drag.w);
+    const th = Math.max(0, Math.min(180, (Math.acos(u) - Math.acos(u0)) / D2R));
+    const now = performance.now();
+    omega = (th - theta) / Math.max(0.008, (now - drag.t) / 1000);
+    theta = th; drag.t = now;
+  });
+  const release = () => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (!d.moved) return startOpen();
+    if (theta > 80 || omega > 220) { Music.chime(); setPhase('fall'); } else setPhase('shut');
+  };
+  flap.addEventListener('pointerup', release);
+  flap.addEventListener('pointercancel', release);
+  addEventListener('keydown', e => {
+    if (phase === 'closed' && (e.key === 'Enter' || e.key === ' ') && e.target !== nameInput) { e.preventDefault(); startOpen(); }
+  });
+})();
+</script>
+</body>
+</html>
